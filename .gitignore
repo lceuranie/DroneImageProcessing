@@ -1,0 +1,37 @@
+# Raw imagery and large intermediate outputs — never commit
+data/raw/*
+!data/raw/.gitkeep
+data/georeferenced/*
+!data/georeferenced/.gitkeep
+data/mosaic/*
+!data/mosaic/.gitkeep
+data/sfm/*
+!data/sfm/.gitkeep
+
+# But DO commit the small metadata files (they're the source of truth)
+!data/metadata/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.python-version
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Notebooks
+.ipynb_checkpoints/
+notebooks/*-scratch.ipynb
+
+# Test / build
+.pytest_cache/
+.ruff_cache/
+.coverage
+dist/
+build/

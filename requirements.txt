@@ -1,0 +1,36 @@
+# Core
+numpy>=1.26
+pandas>=2.1
+tqdm>=4.66
+pyyaml>=6.0
+
+# Metadata extraction
+PyExifTool>=0.5.6        # wraps the exiftool binary (system dep!)
+Pillow>=10.0             # fallback for basic EXIF
+piexif>=1.1.3            # writing back EXIF if needed
+
+# Image / vision
+opencv-python>=4.9
+scikit-image>=0.22
+
+# Geospatial
+rasterio>=1.3
+pyproj>=3.6
+shapely>=2.0
+geopandas>=0.14
+fiona>=1.9
+
+# Visualization
+matplotlib>=3.8
+folium>=0.15             # interactive map of footprints
+
+# SfM / 3D
+pycolmap>=0.6            # COLMAP Python bindings (CPU build OK)
+open3d>=0.18             # point-cloud viz + PLY I/O
+laspy>=2.5               # LAS/LAZ export
+
+# Dev
+black>=24.0
+ruff>=0.3
+pytest>=8.0
+ipykernel>=6.29
