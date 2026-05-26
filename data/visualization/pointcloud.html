@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Point Cloud Viewer</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #0b0f14;
+      color: #e5e7eb;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    }
+    #deck-container {
+      position: absolute;
+      inset: 0;
+    }
+    .overlay {
+      position: absolute;
+      left: 16px;
+      bottom: 16px;
+      z-index: 10;
+      background: rgba(11, 15, 20, 0.85);
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.4;
+      max-width: 260px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+    }
+    .overlay a {
+      color: #93c5fd;
+    }
+    .status {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      z-index: 10;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div id="deck-container"></div>
+  <div class="status" id="status">Preparing point cloud...</div>
+  <div class="overlay">
+    <div style="font-weight: 700; margin-bottom: 6px;">DJI Neo Point Cloud</div>
+    <div>Points: <span id="point-count">4,561,726</span></div>
+    <div>Left-drag to rotate, right-drag to pan, scroll to zoom.</div>
+    <div style="margin-top: 6px;"><a href="viewer.html">Back to 2D map</a></div>
+  </div>
+
+  <script src="https://unpkg.com/deck.gl@8.9.36/dist.min.js"></script>
+  <script src="https://unpkg.com/@loaders.gl/core@4.3.2/dist/dist.min.js"></script>
+  <script src="https://unpkg.com/@loaders.gl/las@4.3.2/dist/dist.min.js"></script>
+  <script>
+    const POINT_COUNT = 4561726;
+    const statusEl = document.getElementById("status");
+    const countEl = document.getElementById("point-count");
+
+    function formatNumber(value) {
+      return value.toLocaleString("en-US");
+    }
+
+    async function loadPointCloud() {
+      statusEl.textContent = "Loading point cloud...";
+      const response = await fetch("./odm_pointcloud.laz");
+      if (!response.ok) {
+        throw new Error("Failed to load point cloud: " + response.statusText);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const las = await loaders.parse(arrayBuffer, loaders.LASLoader);
+
+      const positions = las.attributes.POSITION.value;
+      const colors16 = las.attributes.COLOR_0 ? las.attributes.COLOR_0.value : null;
+      const pointCount = positions.length / 3;
+
+      let minX = Infinity;
+      let minY = Infinity;
+      let minZ = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      let maxZ = -Infinity;
+      let sumX = 0;
+      let sumY = 0;
+      let sumZ = 0;
+
+      for (let i = 0; i < positions.length; i += 3) {
+        const x = positions[i];
+        const y = positions[i + 1];
+        const z = positions[i + 2];
+
+        sumX += x;
+        sumY += y;
+        sumZ += z;
+
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (z < minZ) minZ = z;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+        if (z > maxZ) maxZ = z;
+      }
+
+      const centroid = [sumX / pointCount, sumY / pointCount, sumZ / pointCount];
+      const centered = new Float32Array(positions.length);
+      for (let i = 0; i < positions.length; i += 3) {
+        centered[i] = positions[i] - centroid[0];
+        centered[i + 1] = positions[i + 1] - centroid[1];
+        centered[i + 2] = positions[i + 2] - centroid[2];
+      }
+
+      let colors = null;
+      if (colors16) {
+        colors = new Uint8Array(colors16.length);
+        for (let i = 0; i < colors16.length; i += 1) {
+          colors[i] = Math.min(255, Math.round(colors16[i] / 256));
+        }
+      }
+
+      const extentX = maxX - minX;
+      const extentY = maxY - minY;
+      const extentZ = maxZ - minZ;
+      const maxExtent = Math.max(extentX, extentY, extentZ);
+      const distance = Math.max(50, maxExtent * 1.6);
+
+      const data = {
+        length: pointCount,
+        attributes: {
+          POSITION: { value: centered, size: 3 },
+          COLOR_0: colors ? { value: colors, size: 3 } : null,
+        },
+      };
+
+      const layers = [
+        new deck.PointCloudLayer({
+          id: "point-cloud",
+          data,
+          coordinateSystem: deck.COORDINATE_SYSTEM.CARTESIAN,
+          pointSize: 1.5,
+          getPosition: { attribute: "POSITION" },
+          getColor: colors ? { attribute: "COLOR_0" } : [200, 200, 200],
+        }),
+      ];
+
+      new deck.Deck({
+        parent: "deck-container",
+        views: [new deck.OrbitView()],
+        controller: { type: deck.OrbitController, dragRotate: true, dragPan: true, scrollZoom: true },
+        initialViewState: {
+          target: [0, 0, 0],
+          distance,
+          rotationX: 45,
+          rotationOrbit: 0,
+        },
+        layers,
+      });
+
+      countEl.textContent = formatNumber(pointCount);
+      statusEl.textContent = "Loaded " + formatNumber(pointCount) + " points.";
+    }
+
+    loadPointCloud().catch((error) => {
+      statusEl.textContent = error.message;
+      console.error(error);
+    });
+  </script>
+</body>
+</html>

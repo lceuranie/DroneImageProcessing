@@ -66,6 +66,7 @@ python -m src.viewer
 This writes:
 
 - `data/visualization/viewer.html`
+- `data/visualization/pointcloud.html`
 
 On Windows you can also launch it with:
 
@@ -78,6 +79,7 @@ Viewer controls:
 - Click `Adjust position` to enter drag mode for visible overlays and align them manually against the basemap.
 - Click `Reset` to snap overlays back to their original georeferenced positions.
 - Click `Copy offset` to copy the currently selected overlay's `dx_m` / `dy_m` correction as JSON.
+- Click `View 3D point cloud` to open the standalone point cloud viewer.
 
 ## Project layout
 

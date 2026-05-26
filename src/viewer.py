@@ -82,6 +82,24 @@ class ViewerControls(MacroElement):
                 <button id="reset-overlays" type="button">Reset</button>
                 <button id="copy-offset" type="button">Copy offset</button>
             </div>
+            <div style="margin-top: 10px;">
+                <a
+                    href="pointcloud.html"
+                    target="_blank"
+                    rel="noopener"
+                    style="
+                        display: inline-block;
+                        padding: 6px 10px;
+                        border-radius: 6px;
+                        background: #1f5fbf;
+                        color: #fff;
+                        font-weight: 600;
+                        text-decoration: none;
+                    "
+                >
+                    View 3D point cloud
+                </a>
+            </div>
             <div style="margin-top: 6px; color: #444;">
                 Higher VARI / GLI / NGRDI values mean more vegetation.
             </div>
