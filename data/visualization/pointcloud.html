@@ -3,174 +3,168 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Point Cloud Viewer</title>
+  <title>Point Cloud Viewer — DJI Neo</title>
   <style>
-    :root {
-      color-scheme: dark;
-    }
+    :root { color-scheme: dark; }
     html, body {
-      margin: 0;
-      height: 100%;
-      background: #0b0f14;
-      color: #e5e7eb;
+      margin: 0; height: 100%; overflow: hidden;
+      background: #0b0f14; color: #e5e7eb;
       font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
     }
-    #deck-container {
-      position: absolute;
-      inset: 0;
-    }
-    .overlay {
-      position: absolute;
-      left: 16px;
-      bottom: 16px;
-      z-index: 10;
+    #canvas-host { position: fixed; inset: 0; }
+    .panel {
+      position: absolute; z-index: 10;
       background: rgba(11, 15, 20, 0.85);
       border: 1px solid rgba(148, 163, 184, 0.3);
       border-radius: 8px;
       padding: 10px 12px;
-      font-size: 12px;
-      line-height: 1.4;
-      max-width: 260px;
+      font-size: 12px; line-height: 1.45;
       box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
     }
-    .overlay a {
-      color: #93c5fd;
-    }
-    .status {
-      position: absolute;
-      top: 16px;
-      left: 16px;
-      z-index: 10;
-      background: rgba(15, 23, 42, 0.8);
-      border: 1px solid rgba(148, 163, 184, 0.3);
-      border-radius: 6px;
-      padding: 6px 10px;
-      font-size: 12px;
-    }
+    #status { top: 16px; left: 16px; }
+    #info { left: 16px; bottom: 16px; max-width: 270px; }
+    #info a { color: #93c5fd; }
+    .title { font-weight: 700; margin-bottom: 6px; }
   </style>
 </head>
 <body>
-  <div id="deck-container"></div>
-  <div class="status" id="status">Preparing point cloud...</div>
-  <div class="overlay">
-    <div style="font-weight: 700; margin-bottom: 6px;">DJI Neo Point Cloud</div>
-    <div>Points: <span id="point-count">4,561,726</span></div>
-    <div>Left-drag to rotate, right-drag to pan, scroll to zoom.</div>
-    <div style="margin-top: 6px;"><a href="viewer.html">Back to 2D map</a></div>
+  <div id="canvas-host"></div>
+  <div class="panel" id="status">Preparing point cloud…</div>
+  <div class="panel" id="info">
+    <div class="title">DJI Neo Point Cloud</div>
+    <div>Points: <span id="point-count">—</span></div>
+    <div>Left-drag to rotate · right-drag to pan · scroll to zoom</div>
+    <div style="margin-top: 6px;"><a href="viewer.html">&larr; Back to 2D map</a></div>
   </div>
 
-  <script src="https://unpkg.com/deck.gl@8.9.36/dist.min.js"></script>
+  <!-- loaders.gl: decodes the .laz file (exposes the global "loaders") -->
   <script src="https://unpkg.com/@loaders.gl/core@4.3.2/dist/dist.min.js"></script>
   <script src="https://unpkg.com/@loaders.gl/las@4.3.2/dist/dist.min.js"></script>
-  <script>
-    const POINT_COUNT = 4561726;
+
+  <!-- three.js: 3D rendering -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    // Render the point colours exactly as stored in the file (no sRGB remapping).
+    THREE.ColorManagement.enabled = false;
+
     const statusEl = document.getElementById("status");
     const countEl = document.getElementById("point-count");
 
-    function formatNumber(value) {
-      return value.toLocaleString("en-US");
-    }
-
-    async function loadPointCloud() {
-      statusEl.textContent = "Loading point cloud...";
+    async function main() {
+      // 1. Download the recentered LAZ file (sits next to this HTML).
+      statusEl.textContent = "Downloading point cloud…";
       const response = await fetch("./odm_pointcloud.laz");
       if (!response.ok) {
-        throw new Error("Failed to load point cloud: " + response.statusText);
+        throw new Error("Could not fetch odm_pointcloud.laz (HTTP " + response.status + ")");
       }
-      const arrayBuffer = await response.arrayBuffer();
-      const las = await loaders.parse(arrayBuffer, loaders.LASLoader);
+      const buffer = await response.arrayBuffer();
 
-      const positions = las.attributes.POSITION.value;
-      const colors16 = las.attributes.COLOR_0 ? las.attributes.COLOR_0.value : null;
+      // 2. Decode it with loaders.gl's LAS/LAZ loader.
+      statusEl.textContent = "Decoding " + (buffer.byteLength / 1e6).toFixed(1) + " MB…";
+      const las = await loaders.parse(buffer, loaders.LASLoader);
+
+      if (!las.attributes || !las.attributes.POSITION) {
+        throw new Error("No POSITION data found in the point cloud.");
+      }
+      const positions = las.attributes.POSITION.value;        // Float32Array, xyz (already centered)
       const pointCount = positions.length / 3;
+      const colorSrc = las.attributes.COLOR_0 ? las.attributes.COLOR_0.value : null;
+      const colorSize = las.attributes.COLOR_0 ? las.attributes.COLOR_0.size : 0;
 
-      let minX = Infinity;
-      let minY = Infinity;
-      let minZ = Infinity;
-      let maxX = -Infinity;
-      let maxY = -Infinity;
-      let maxZ = -Infinity;
-      let sumX = 0;
-      let sumY = 0;
-      let sumZ = 0;
+      // 3. Build the geometry.
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
 
-      for (let i = 0; i < positions.length; i += 3) {
-        const x = positions[i];
-        const y = positions[i + 1];
-        const z = positions[i + 2];
-
-        sumX += x;
-        sumY += y;
-        sumZ += z;
-
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (z < minZ) minZ = z;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-        if (z > maxZ) maxZ = z;
-      }
-
-      const centroid = [sumX / pointCount, sumY / pointCount, sumZ / pointCount];
-      const centered = new Float32Array(positions.length);
-      for (let i = 0; i < positions.length; i += 3) {
-        centered[i] = positions[i] - centroid[0];
-        centered[i + 1] = positions[i + 1] - centroid[1];
-        centered[i + 2] = positions[i + 2] - centroid[2];
-      }
-
-      let colors = null;
-      if (colors16) {
-        colors = new Uint8Array(colors16.length);
-        for (let i = 0; i < colors16.length; i += 1) {
-          colors[i] = Math.min(255, Math.round(colors16[i] / 256));
+      let hasColor = false;
+      if (colorSrc && colorSize >= 3) {
+        // loaders.gl returns colour as RGBA (4 values); three.js wants RGB — drop alpha.
+        const rgb = new Uint8Array(pointCount * 3);
+        for (let i = 0; i < pointCount; i++) {
+          rgb[i * 3]     = colorSrc[i * colorSize];
+          rgb[i * 3 + 1] = colorSrc[i * colorSize + 1];
+          rgb[i * 3 + 2] = colorSrc[i * colorSize + 2];
         }
+        // normalized = true maps the 0–255 byte values to 0–1 for the GPU.
+        geometry.setAttribute("color", new THREE.BufferAttribute(rgb, 3, true));
+        hasColor = true;
       }
 
-      const extentX = maxX - minX;
-      const extentY = maxY - minY;
-      const extentZ = maxZ - minZ;
-      const maxExtent = Math.max(extentX, extentY, extentZ);
-      const distance = Math.max(50, maxExtent * 1.6);
+      geometry.computeBoundingBox();
+      const size = new THREE.Vector3();
+      const center = new THREE.Vector3();
+      geometry.boundingBox.getSize(size);
+      geometry.boundingBox.getCenter(center);
+      const radius = Math.max(size.x, size.y, size.z) || 50;
 
-      const data = {
-        length: pointCount,
-        attributes: {
-          POSITION: { value: centered, size: 3 },
-          COLOR_0: colors ? { value: colors, size: 3 } : null,
-        },
-      };
+      // 4. Material + the point cloud object.
+      const material = new THREE.PointsMaterial({
+        size: 1.5,
+        sizeAttenuation: false,          // size in screen pixels — predictable at any zoom
+        vertexColors: hasColor,
+        color: hasColor ? 0xffffff : 0x9aa4b2
+      });
+      const cloud = new THREE.Points(geometry, material);
 
-      const layers = [
-        new deck.PointCloudLayer({
-          id: "point-cloud",
-          data,
-          coordinateSystem: deck.COORDINATE_SYSTEM.CARTESIAN,
-          pointSize: 1.5,
-          getPosition: { attribute: "POSITION" },
-          getColor: colors ? { attribute: "COLOR_0" } : [200, 200, 200],
-        }),
-      ];
+      // 5. Scene, camera, renderer.
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0b0f14);
+      scene.add(cloud);
 
-      new deck.Deck({
-        parent: "deck-container",
-        views: [new deck.OrbitView()],
-        controller: { type: deck.OrbitController, dragRotate: true, dragPan: true, scrollZoom: true },
-        initialViewState: {
-          target: [0, 0, 0],
-          distance,
-          rotationX: 45,
-          rotationOrbit: 0,
-        },
-        layers,
+      const camera = new THREE.PerspectiveCamera(
+        60, window.innerWidth / window.innerHeight, 0.1, radius * 100
+      );
+      camera.up.set(0, 0, 1);            // LAS convention: Z is up
+      camera.position.set(
+        center.x + radius * 0.8,
+        center.y - radius * 0.9,
+        center.z + radius * 0.7
+      );
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.getElementById("canvas-host").appendChild(renderer.domElement);
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.target.copy(center);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
+      controls.minDistance = radius * 0.05;
+      controls.maxDistance = radius * 6;
+      controls.update();
+
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
       });
 
-      countEl.textContent = formatNumber(pointCount);
-      statusEl.textContent = "Loaded " + formatNumber(pointCount) + " points.";
+      function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+      }
+      animate();
+
+      // 6. Update the on-screen text.
+      countEl.textContent = pointCount.toLocaleString("en-US");
+      statusEl.textContent = pointCount.toLocaleString("en-US") + " points loaded";
+      setTimeout(() => { statusEl.style.display = "none"; }, 4000);
     }
 
-    loadPointCloud().catch((error) => {
-      statusEl.textContent = error.message;
+    main().catch((error) => {
+      statusEl.textContent = "Error: " + error.message;
       console.error(error);
     });
   </script>
