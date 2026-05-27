@@ -68,6 +68,8 @@ This writes:
 - `data/visualization/viewer.html`
 - `data/visualization/pointcloud.html`
 
+The 3D viewer expects `data/visualization/odm_pointcloud.laz` to be present.
+
 On Windows you can also launch it with:
 
 - `scripts\run_viewer.bat`
